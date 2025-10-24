@@ -1,0 +1,239 @@
+// Prisma schema for SafuInfoFi Dashboard
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Projects that launched tokens on InfoFi
+model Project {
+  id            String   @id @default(cuid())
+  projectId     Int      @unique // On-chain project ID
+  tokenAddress  String   @unique
+  ownerAddress  String
+  name          String
+  symbol        String
+  metadataURI   String?
+  description   String?
+  website       String?
+  logoUrl       String?
+
+  registeredAt  DateTime
+  lastFeePaid   DateTime
+  isActive      Boolean  @default(true)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  leaderboard   Leaderboard?
+  posts         Post[]
+  keywords      ProjectKeyword[]
+
+  @@index([tokenAddress])
+  @@index([isActive])
+  @@index([projectId])
+}
+
+// User wallets linked to X accounts
+model User {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  xHandle       String   @unique
+  safuDomain    String
+
+  linkedAt      DateTime
+  isActive      Boolean  @default(true)
+
+  // X Account Info (cached)
+  xUserId       String?
+  xDisplayName  String?
+  xProfileImage String?
+  xFollowers    Int?
+  xVerified     Boolean  @default(false)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  posts         Post[]
+  rankings      LeaderboardEntry[]
+
+  @@index([walletAddress])
+  @@index([xHandle])
+  @@index([isActive])
+}
+
+// Leaderboard for each project
+model Leaderboard {
+  id            String   @id @default(cuid())
+  projectId     String   @unique
+
+  lastUpdated   DateTime @default(now())
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entries       LeaderboardEntry[]
+
+  @@index([projectId])
+}
+
+// Individual ranking entries
+model LeaderboardEntry {
+  id              String   @id @default(cuid())
+  leaderboardId   String
+  userId          String
+
+  rank            Int
+  score           Float
+  totalPosts      Int      @default(0)
+  totalImpressions Int     @default(0)
+  totalEngagement Int      @default(0)
+
+  // Score breakdown
+  relevanceScore  Float    @default(0)
+  engagementScore Float    @default(0)
+
+  lastCalculated  DateTime @default(now())
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  leaderboard     Leaderboard @relation(fields: [leaderboardId], references: [id], onDelete: Cascade)
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leaderboardId, userId])
+  @@index([leaderboardId, rank])
+  @@index([userId])
+}
+
+// X/Twitter posts
+model Post {
+  id              String   @id @default(cuid())
+  tweetId         String   @unique
+  userId          String
+  projectId       String?
+
+  content         String
+  xHandle         String
+  createdAt       DateTime
+
+  // Metrics
+  impressions     Int      @default(0)
+  likes           Int      @default(0)
+  retweets        Int      @default(0)
+  replies         Int      @default(0)
+
+  // Analysis
+  relevanceScore  Float?
+  sentiment       Float?
+  topics          String[]
+
+  // Metadata
+  isRetweet       Boolean  @default(false)
+  isReply         Boolean  @default(false)
+  mediaUrls       String[]
+  hashtags        String[]
+  mentions        String[]
+
+  processedAt     DateTime?
+  lastSyncedAt    DateTime @default(now())
+
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project         Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([tweetId])
+  @@index([userId])
+  @@index([projectId])
+  @@index([createdAt])
+  @@index([xHandle])
+}
+
+// Project keywords for relevance matching
+model ProjectKeyword {
+  id          String   @id @default(cuid())
+  projectId   String
+  keyword     String
+  weight      Float    @default(1.0)
+  type        KeywordType @default(GENERAL)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, keyword])
+  @@index([projectId])
+}
+
+enum KeywordType {
+  TOKEN_NAME
+  TOKEN_SYMBOL
+  PROJECT_NAME
+  HASHTAG
+  GENERAL
+}
+
+// Job tracking
+model Job {
+  id          String    @id @default(cuid())
+  type        JobType
+  status      JobStatus @default(PENDING)
+
+  data        Json?
+  result      Json?
+  error       String?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([type, status])
+  @@index([createdAt])
+}
+
+enum JobType {
+  SYNC_POSTS
+  UPDATE_LEADERBOARD
+  CALCULATE_RELEVANCE
+  UPDATE_USER_METRICS
+  COLLECT_FEES
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// API Keys for authentication
+model ApiKey {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  ownerAddress String
+
+  isActive    Boolean  @default(true)
+  lastUsed    DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+  @@index([ownerAddress])
+}
