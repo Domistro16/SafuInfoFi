@@ -7,8 +7,8 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title InfoFiRegistry
- * @notice Manages project registration and fee payments for SafuInfoFi Dashboard
- * @dev Projects must pay weekly fees to remain active on the platform
+ * @notice Manages project registration for SafuInfoFi Dashboard
+ * @dev Projects register to participate in reward distribution - no recurring fees
  */
 contract InfoFiRegistry is Ownable, ReentrancyGuard, Pausable {
 
@@ -18,19 +18,15 @@ contract InfoFiRegistry is Ownable, ReentrancyGuard, Pausable {
         string name;
         string symbol;
         uint256 registeredAt;
-        uint256 lastFeePaid;
         bool isActive;
         string metadataURI; // IPFS link to additional project data
     }
 
-    // Weekly fee in wei
-    uint256 public weeklyFee;
+    // One-time registration fee (optional)
+    uint256 public registrationFee;
 
-    // Grace period before deactivation (in seconds)
-    uint256 public constant GRACE_PERIOD = 3 days;
-
-    // Fee collection address
-    address public feeCollector;
+    // Admin wallet to receive registration fees
+    address public adminWallet;
 
     // Mapping from project ID to Project
     mapping(uint256 => Project) public projects;
@@ -50,28 +46,21 @@ contract InfoFiRegistry is Ownable, ReentrancyGuard, Pausable {
         string symbol
     );
 
-    event FeePaid(
-        uint256 indexed projectId,
-        address indexed payer,
-        uint256 amount,
-        uint256 timestamp
-    );
-
     event ProjectDeactivated(uint256 indexed projectId, uint256 timestamp);
-    event ProjectReactivated(uint256 indexed projectId, uint256 timestamp);
-    event WeeklyFeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeeCollectorUpdated(address oldCollector, address newCollector);
+    event ProjectActivated(uint256 indexed projectId, uint256 timestamp);
+    event RegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
+    event AdminWalletUpdated(address oldWallet, address newWallet);
     event MetadataUpdated(uint256 indexed projectId, string newMetadataURI);
 
     /**
      * @notice Constructor
-     * @param _weeklyFee Initial weekly fee amount
-     * @param _feeCollector Address to collect fees
+     * @param _registrationFee One-time registration fee
+     * @param _adminWallet Address to receive fees
      */
-    constructor(uint256 _weeklyFee, address _feeCollector) Ownable(msg.sender) {
-        require(_feeCollector != address(0), "Invalid fee collector");
-        weeklyFee = _weeklyFee;
-        feeCollector = _feeCollector;
+    constructor(uint256 _registrationFee, address _adminWallet) Ownable(msg.sender) {
+        require(_adminWallet != address(0), "Invalid admin wallet");
+        registrationFee = _registrationFee;
+        adminWallet = _adminWallet;
     }
 
     /**
@@ -91,7 +80,7 @@ contract InfoFiRegistry is Ownable, ReentrancyGuard, Pausable {
         require(bytes(name).length > 0, "Name required");
         require(bytes(symbol).length > 0, "Symbol required");
         require(tokenToProjectId[tokenAddress] == 0, "Project already registered");
-        require(msg.value >= weeklyFee, "Insufficient fee");
+        require(msg.value >= registrationFee, "Insufficient fee");
 
         projectCount++;
         uint256 projectId = projectCount;
@@ -102,85 +91,53 @@ contract InfoFiRegistry is Ownable, ReentrancyGuard, Pausable {
             name: name,
             symbol: symbol,
             registeredAt: block.timestamp,
-            lastFeePaid: block.timestamp,
             isActive: true,
             metadataURI: metadataURI
         });
 
         tokenToProjectId[tokenAddress] = projectId;
 
-        // Transfer fee to collector
-        (bool success, ) = feeCollector.call{value: msg.value}("");
-        require(success, "Fee transfer failed");
+        // Transfer fee to admin wallet
+        if (msg.value > 0) {
+            (bool success, ) = adminWallet.call{value: msg.value}("");
+            require(success, "Fee transfer failed");
+        }
 
         emit ProjectRegistered(projectId, tokenAddress, msg.sender, name, symbol);
-        emit FeePaid(projectId, msg.sender, msg.value, block.timestamp);
     }
 
     /**
-     * @notice Pay weekly fee for a project
+     * @notice Deactivate a project (only owner or project owner)
      * @param projectId ID of the project
      */
-    function payFee(uint256 projectId) external payable nonReentrant whenNotPaused {
+    function deactivateProject(uint256 projectId) external {
         require(projectId > 0 && projectId <= projectCount, "Invalid project ID");
-        require(msg.value >= weeklyFee, "Insufficient fee");
-
         Project storage project = projects[projectId];
-        require(project.tokenAddress != address(0), "Project does not exist");
+        require(
+            msg.sender == owner() || msg.sender == project.ownerAddress,
+            "Not authorized"
+        );
+        require(project.isActive, "Already inactive");
 
-        project.lastFeePaid = block.timestamp;
-
-        if (!project.isActive) {
-            project.isActive = true;
-            emit ProjectReactivated(projectId, block.timestamp);
-        }
-
-        // Transfer fee to collector
-        (bool success, ) = feeCollector.call{value: msg.value}("");
-        require(success, "Fee transfer failed");
-
-        emit FeePaid(projectId, msg.sender, msg.value, block.timestamp);
+        project.isActive = false;
+        emit ProjectDeactivated(projectId, block.timestamp);
     }
 
     /**
-     * @notice Check if a project's fee is due
+     * @notice Activate a project (only owner or project owner)
      * @param projectId ID of the project
-     * @return bool True if fee is due
      */
-    function isFeeDue(uint256 projectId) public view returns (bool) {
+    function activateProject(uint256 projectId) external {
         require(projectId > 0 && projectId <= projectCount, "Invalid project ID");
-        Project memory project = projects[projectId];
+        Project storage project = projects[projectId];
+        require(
+            msg.sender == owner() || msg.sender == project.ownerAddress,
+            "Not authorized"
+        );
+        require(!project.isActive, "Already active");
 
-        // Fee is due if more than 1 week has passed since last payment
-        return block.timestamp > project.lastFeePaid + 1 weeks;
-    }
-
-    /**
-     * @notice Check if a project should be deactivated
-     * @param projectId ID of the project
-     * @return bool True if project should be deactivated
-     */
-    function shouldDeactivate(uint256 projectId) public view returns (bool) {
-        require(projectId > 0 && projectId <= projectCount, "Invalid project ID");
-        Project memory project = projects[projectId];
-
-        // Deactivate if grace period has passed without payment
-        return project.isActive &&
-               block.timestamp > project.lastFeePaid + 1 weeks + GRACE_PERIOD;
-    }
-
-    /**
-     * @notice Deactivate projects with overdue fees (callable by anyone)
-     * @param projectIds Array of project IDs to check and deactivate
-     */
-    function deactivateOverdueProjects(uint256[] calldata projectIds) external {
-        for (uint256 i = 0; i < projectIds.length; i++) {
-            uint256 projectId = projectIds[i];
-            if (shouldDeactivate(projectId)) {
-                projects[projectId].isActive = false;
-                emit ProjectDeactivated(projectId, block.timestamp);
-            }
-        }
+        project.isActive = true;
+        emit ProjectActivated(projectId, block.timestamp);
     }
 
     /**
@@ -226,24 +183,24 @@ contract InfoFiRegistry is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Update weekly fee (only owner)
-     * @param newFee New weekly fee amount
+     * @notice Update registration fee (only owner)
+     * @param newFee New registration fee amount
      */
-    function setWeeklyFee(uint256 newFee) external onlyOwner {
-        uint256 oldFee = weeklyFee;
-        weeklyFee = newFee;
-        emit WeeklyFeeUpdated(oldFee, newFee);
+    function setRegistrationFee(uint256 newFee) external onlyOwner {
+        uint256 oldFee = registrationFee;
+        registrationFee = newFee;
+        emit RegistrationFeeUpdated(oldFee, newFee);
     }
 
     /**
-     * @notice Update fee collector address (only owner)
-     * @param newCollector New fee collector address
+     * @notice Update admin wallet address (only owner)
+     * @param newWallet New admin wallet address
      */
-    function setFeeCollector(address newCollector) external onlyOwner {
-        require(newCollector != address(0), "Invalid address");
-        address oldCollector = feeCollector;
-        feeCollector = newCollector;
-        emit FeeCollectorUpdated(oldCollector, newCollector);
+    function setAdminWallet(address newWallet) external onlyOwner {
+        require(newWallet != address(0), "Invalid address");
+        address oldWallet = adminWallet;
+        adminWallet = newWallet;
+        emit AdminWalletUpdated(oldWallet, newWallet);
     }
 
     /**

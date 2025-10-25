@@ -23,7 +23,6 @@ model Project {
   logoUrl       String?
 
   registeredAt  DateTime
-  lastFeePaid   DateTime
   isActive      Boolean  @default(true)
 
   createdAt     DateTime @default(now())
@@ -33,6 +32,7 @@ model Project {
   leaderboard   Leaderboard?
   posts         Post[]
   keywords      ProjectKeyword[]
+  payouts       Payout[]
 
   @@index([tokenAddress])
   @@index([isActive])
@@ -62,6 +62,7 @@ model User {
   // Relations
   posts         Post[]
   rankings      LeaderboardEntry[]
+  payouts       Payout[]
 
   @@index([walletAddress])
   @@index([xHandle])
@@ -93,6 +94,7 @@ model LeaderboardEntry {
 
   rank            Int
   score           Float
+  points          Int      @default(0) // Points for payout distribution
   totalPosts      Int      @default(0)
   totalImpressions Int     @default(0)
   totalEngagement Int      @default(0)
@@ -100,6 +102,10 @@ model LeaderboardEntry {
   // Score breakdown
   relevanceScore  Float    @default(0)
   engagementScore Float    @default(0)
+
+  // Weekly tracking
+  weeklyPoints    Int      @default(0) // Points earned this week
+  lastPointsReset DateTime @default(now())
 
   lastCalculated  DateTime @default(now())
 
@@ -211,7 +217,7 @@ enum JobType {
   UPDATE_LEADERBOARD
   CALCULATE_RELEVANCE
   UPDATE_USER_METRICS
-  COLLECT_FEES
+  EXECUTE_PAYOUTS
 }
 
 enum JobStatus {
@@ -236,4 +242,60 @@ model ApiKey {
 
   @@index([key])
   @@index([ownerAddress])
+}
+
+// Payout rounds and distribution
+model PayoutRound {
+  id              String    @id @default(cuid())
+  roundId         Int       @unique
+
+  totalAmount     String    // Wei as string
+  totalPoints     Int
+  weiPerPoint     String    // Wei per point as string
+
+  projectCount    Int
+  yapperCount     Int
+
+  executedAt      DateTime
+  createdAt       DateTime  @default(now())
+
+  // Relations
+  payouts         Payout[]
+
+  @@index([roundId])
+  @@index([executedAt])
+}
+
+// Individual payouts to yappers
+model Payout {
+  id              String   @id @default(cuid())
+  roundId         Int
+  userId          String
+  projectId       String
+
+  points          Int
+  amount          String   // Wei as string
+
+  txHash          String?  // Transaction hash
+  status          PayoutStatus @default(PENDING)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  round           PayoutRound @relation(fields: [roundId], references: [roundId], onDelete: Cascade)
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project         Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([roundId])
+  @@index([userId])
+  @@index([projectId])
+  @@index([status])
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }
