@@ -12,6 +12,7 @@ import projectRoutes from './routes/projectRoutes';
 import userRoutes from './routes/userRoutes';
 import leaderboardRoutes from './routes/leaderboardRoutes';
 import postRoutes from './routes/postRoutes';
+import payoutRoutes from './routes/payoutRoutes';
 import healthRoutes from './routes/healthRoutes';
 
 // Load environment variables
@@ -45,6 +46,7 @@ apiRouter.use('/projects', projectRoutes);
 apiRouter.use('/users', userRoutes);
 apiRouter.use('/leaderboards', leaderboardRoutes);
 apiRouter.use('/posts', postRoutes);
+apiRouter.use('/payouts', payoutRoutes);
 
 app.use(`/api/${API_VERSION}`, apiRouter);
 
@@ -60,6 +62,7 @@ app.get('/', (req: Request, res: Response) => {
       users: `/api/${API_VERSION}/users`,
       leaderboards: `/api/${API_VERSION}/leaderboards`,
       posts: `/api/${API_VERSION}/posts`,
+      payouts: `/api/${API_VERSION}/payouts`,
     },
   });
 });

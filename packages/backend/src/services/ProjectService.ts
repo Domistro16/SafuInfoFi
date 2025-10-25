@@ -75,7 +75,6 @@ export class ProjectService {
             where: { projectId: i },
             data: {
               isActive: projectData.isActive,
-              lastFeePaid: new Date(Number(projectData.lastFeePaid) * 1000),
             },
           });
         } else {
@@ -89,7 +88,6 @@ export class ProjectService {
               symbol: projectData.symbol,
               metadataURI: projectData.metadataURI,
               registeredAt: new Date(Number(projectData.registeredAt) * 1000),
-              lastFeePaid: new Date(Number(projectData.lastFeePaid) * 1000),
               isActive: projectData.isActive,
             },
           });

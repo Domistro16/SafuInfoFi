@@ -149,19 +149,31 @@ export class LeaderboardService {
       where: { leaderboardId: leaderboard.id },
     });
 
-    // Create new entries with ranks
-    const entries = scoredUsers.map((user, index) => ({
-      leaderboardId: leaderboard.id,
-      userId: user.userId,
-      rank: index + 1,
-      score: user.score,
-      totalPosts: user.totalPosts,
-      totalImpressions: user.totalImpressions,
-      totalEngagement: user.totalEngagement,
-      relevanceScore: user.relevanceScore / user.totalPosts,
-      engagementScore: user.engagementScore,
-      lastCalculated: new Date(),
-    }));
+    // Create new entries with ranks and points
+    const entries = scoredUsers.map((user, index) => {
+      const rank = index + 1;
+
+      // Calculate points for payout distribution
+      // Top 10 get bonus points
+      const rankBonus = rank <= 10 ? (10 - rank) * 100 : 0;
+      const scorePoints = Math.floor(user.score * 1000);
+      const calculatedPoints = scorePoints + rankBonus;
+
+      return {
+        leaderboardId: leaderboard.id,
+        userId: user.userId,
+        rank,
+        score: user.score,
+        points: calculatedPoints,
+        weeklyPoints: calculatedPoints, // Add to weekly points
+        totalPosts: user.totalPosts,
+        totalImpressions: user.totalImpressions,
+        totalEngagement: user.totalEngagement,
+        relevanceScore: user.relevanceScore / user.totalPosts,
+        engagementScore: user.engagementScore,
+        lastCalculated: new Date(),
+      };
+    });
 
     if (entries.length > 0) {
       await prisma.leaderboardEntry.createMany({

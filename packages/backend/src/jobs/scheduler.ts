@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { PostService } from '../services/PostService';
 import { LeaderboardService } from '../services/LeaderboardService';
 import { ProjectService } from '../services/ProjectService';
+import { PayoutService } from '../services/PayoutService';
 import prisma from '../config/database';
 import logger from '../utils/logger';
 
@@ -9,11 +10,13 @@ export class JobScheduler {
   private postService: PostService;
   private leaderboardService: LeaderboardService;
   private projectService: ProjectService;
+  private payoutService: PayoutService;
 
   constructor() {
     this.postService = new PostService();
     this.leaderboardService = new LeaderboardService();
     this.projectService = new ProjectService();
+    this.payoutService = new PayoutService();
   }
 
   start() {
@@ -42,11 +45,10 @@ export class JobScheduler {
       await this.projectService.syncFromBlockchain();
     });
 
-    // Sunday at 1:00 AM UTC - Fee collection reminder
-    // Note: Actual fee collection happens on-chain via Chainlink Automation
+    // Sunday at 1:00 AM UTC - Execute payouts
     cron.schedule('0 1 * * 0', async () => {
-      logger.info('Running Sunday fee collection check...');
-      await this.checkFeeStatus();
+      logger.info('Running Sunday payout execution...');
+      await this.executePayouts();
     }, {
       timezone: 'UTC'
     });
@@ -102,23 +104,17 @@ export class JobScheduler {
     }
   }
 
-  private async checkFeeStatus() {
+  private async executePayouts() {
     try {
-      const projects = await prisma.project.findMany({
-        where: { isActive: true },
-      });
+      const result = await this.payoutService.executeWeeklyPayouts();
 
-      const now = new Date();
-      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      for (const project of projects) {
-        if (project.lastFeePaid < oneWeekAgo) {
-          logger.warn(`Project ${project.name} (${project.id}) fee is overdue`);
-          // Could send notification here
-        }
+      if (result.success) {
+        logger.info(`Payout round ${result.roundId} completed. Distributed ${result.totalAmount} ETH to ${result.totalYappers} yappers`);
+      } else {
+        logger.warn(`Payout execution failed: ${result.message}`);
       }
     } catch (error) {
-      logger.error('Error in fee status check:', error);
+      logger.error('Error in payout execution:', error);
     }
   }
 }

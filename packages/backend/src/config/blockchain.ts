@@ -19,12 +19,13 @@ export const FEE_COLLECTOR_ADDRESS = process.env.FEE_COLLECTOR_CONTRACT_ADDRESS 
 
 // Contract ABIs (simplified - you'll need to import full ABIs from compiled contracts)
 export const REGISTRY_ABI = [
-  'function projects(uint256) view returns (address tokenAddress, address ownerAddress, string name, string symbol, uint256 registeredAt, uint256 lastFeePaid, bool isActive, string metadataURI)',
+  'function projects(uint256) view returns (address tokenAddress, address ownerAddress, string name, string symbol, uint256 registeredAt, bool isActive, string metadataURI)',
   'function projectCount() view returns (uint256)',
   'function getActiveProjects() view returns (uint256[])',
   'function tokenToProjectId(address) view returns (uint256)',
   'event ProjectRegistered(uint256 indexed projectId, address indexed tokenAddress, address indexed owner, string name, string symbol)',
-  'event FeePaid(uint256 indexed projectId, address indexed payer, uint256 amount, uint256 timestamp)',
+  'event ProjectActivated(uint256 indexed projectId, uint256 timestamp)',
+  'event ProjectDeactivated(uint256 indexed projectId, uint256 timestamp)',
 ];
 
 export const WALLET_LINKER_ABI = [
@@ -47,5 +48,25 @@ export const registryContract = new ethers.Contract(
 export const walletLinkerContract = new ethers.Contract(
   WALLET_LINKER_ADDRESS,
   WALLET_LINKER_ABI,
+  provider
+);
+
+export const FEE_COLLECTOR_ABI = [
+  'function executePayouts(uint256[] calldata projectIds, address[][] calldata yappers, uint256[][] calldata points) external',
+  'function getBalance() external view returns (uint256)',
+  'function currentRoundId() external view returns (uint256)',
+  'function minPayoutThreshold() external view returns (uint256)',
+  'function getYapperPayouts(address yapper) external view returns (tuple(uint256 roundId, uint256 projectId, uint256 points, uint256 amount, uint256 timestamp)[])',
+  'function payoutRounds(uint256) external view returns (uint256 roundId, uint256 timestamp, uint256 totalAmount, uint256 projectCount, uint256 yapperCount)',
+  'function lastPayoutTime() external view returns (uint256)',
+  'function timeUntilNextPayout() external view returns (uint256)',
+  'event FeesReceived(address indexed from, uint256 amount, uint256 timestamp)',
+  'event PayoutExecuted(uint256 indexed roundId, uint256 totalAmount, uint256 projectCount, uint256 yapperCount, uint256 timestamp)',
+  'event YapperPaid(address indexed yapper, uint256 indexed projectId, uint256 indexed roundId, uint256 points, uint256 amount)',
+];
+
+export const feeCollectorContract = new ethers.Contract(
+  FEE_COLLECTOR_ADDRESS,
+  FEE_COLLECTOR_ABI,
   provider
 );
